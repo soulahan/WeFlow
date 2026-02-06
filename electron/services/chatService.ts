@@ -2190,19 +2190,32 @@ class ChatService {
 
   /**
    * 清理拍一拍消息
-   * 格式示例: 我拍了拍 "梨绒" ງ໐໐໓ ຖiງht620000wxid_...
+   * 格式示例:
+   *   纯文本: 我拍了拍 "梨绒" ງ໐໐໓ ຖiງht620000wxid_...
+   *   XML: <msg><appmsg...><title>"有幸"拍了拍"浩天空"相信未来!</title>...</msg>
    */
   private cleanPatMessage(content: string): string {
     if (!content) return '[拍一拍]'
 
-    // 1. 尝试匹配标准的 "A拍了拍B" 格式
-    // 这里的正则比较宽泛，为了兼容不同的语言环境
+    // 1. 优先从 XML <title> 标签提取内容
+    const titleMatch = /<title>([\s\S]*?)<\/title>/i.exec(content)
+    if (titleMatch) {
+      const title = titleMatch[1]
+        .replace(/<!\[CDATA\[/g, '')
+        .replace(/\]\]>/g, '')
+        .trim()
+      if (title) {
+        return `[拍一拍] ${title}`
+      }
+    }
+
+    // 2. 尝试匹配标准的 "A拍了拍B" 格式
     const match = /^(.+?拍了拍.+?)(?:[\r\n]|$|ງ|wxid_)/.exec(content)
     if (match) {
       return `[拍一拍] ${match[1].trim()}`
     }
 
-    // 2. 如果匹配失败，尝试清理掉疑似的 garbage (wxid, 乱码)
+    // 3. 如果匹配失败，尝试清理掉疑似的 garbage (wxid, 乱码)
     let cleaned = content.replace(/wxid_[a-zA-Z0-9_-]+/g, '') // 移除 wxid
     cleaned = cleaned.replace(/[ງ໐໓ຖiht]+/g, ' ') // 移除已知的乱码字符
     cleaned = cleaned.replace(/\d{6,}/g, '') // 移除长数字
