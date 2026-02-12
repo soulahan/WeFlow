@@ -15,7 +15,8 @@ const JumpToDateDialog: React.FC<JumpToDateDialogProps> = ({
     onSelect,
     currentDate = new Date()
 }) => {
-    const [calendarDate, setCalendarDate] = useState(new Date(currentDate))
+    const isValidDate = (d: any) => d instanceof Date && !isNaN(d.getTime())
+    const [calendarDate, setCalendarDate] = useState(isValidDate(currentDate) ? new Date(currentDate) : new Date())
     const [selectedDate, setSelectedDate] = useState(new Date(currentDate))
 
     if (!isOpen) return null
