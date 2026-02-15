@@ -1084,7 +1084,7 @@ function ExportPage() {
               >
                 <span className="date-label">开始日期</span>
                 <span className="date-value">
-                  {options.dateRange?.start.toLocaleDateString('zh-CN', {
+                  {options.dateRange?.start?.toLocaleDateString('zh-CN', {
                     year: 'numeric',
                     month: '2-digit',
                     day: '2-digit'
@@ -1098,7 +1098,7 @@ function ExportPage() {
               >
                 <span className="date-label">结束日期</span>
                 <span className="date-value">
-                  {options.dateRange?.end.toLocaleDateString('zh-CN', {
+                  {options.dateRange?.end?.toLocaleDateString('zh-CN', {
                     year: 'numeric',
                     month: '2-digit',
                     day: '2-digit'
@@ -1136,9 +1136,9 @@ function ExportPage() {
                   }
 
                   const currentDate = new Date(calendarDate.getFullYear(), calendarDate.getMonth(), day)
-                  const isStart = options.dateRange?.start.toDateString() === currentDate.toDateString()
-                  const isEnd = options.dateRange?.end.toDateString() === currentDate.toDateString()
-                  const isInRange = options.dateRange && currentDate >= options.dateRange.start && currentDate <= options.dateRange.end
+                  const isStart = options.dateRange?.start?.toDateString() === currentDate.toDateString()
+                  const isEnd = options.dateRange?.end?.toDateString() === currentDate.toDateString()
+                  const isInRange = options.dateRange?.start && options.dateRange?.end && currentDate >= options.dateRange.start && currentDate <= options.dateRange.end
                   const today = new Date()
                   today.setHours(0, 0, 0, 0)
                   const isFuture = currentDate > today
