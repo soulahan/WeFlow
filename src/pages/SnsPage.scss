@@ -44,6 +44,13 @@
     justify-content: space-between;
     margin-bottom: 8px;
     padding: 0 4px;
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    background: var(--sns-bg-color);
+    border-bottom: 1px solid var(--border-color);
+    padding-top: 10px;
+    padding-bottom: 10px;
 
     .feed-header-main {
         display: flex;
