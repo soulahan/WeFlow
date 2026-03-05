@@ -305,9 +305,14 @@ function Sidebar() {
       if (result.warning) {
         detailLines.push('', `注意：${result.warning}`)
       }
-      window.alert(`账号数据清理完成。\n\n${detailLines.join('\n')}\n\n为保障数据安全，WeFlow 已清除该账号本地缓存/导出相关数据。若需再次获取数据，请手动登录微信客户端并重新在 WeFlow 完成配置。`)
+      const followupHint = shouldClearCacheData
+        ? '若需再次获取数据，请手动登录微信客户端并重新在 WeFlow 完成配置。'
+        : '你可以继续使用当前登录状态，无需重新登录。'
+      window.alert(`账号数据清理完成。\n\n${detailLines.join('\n')}\n\n为保障数据安全，WeFlow 已清除该账号本地缓存/导出相关数据。${followupHint}`)
       resetClearDialogState()
-      window.location.reload()
+      if (shouldClearCacheData) {
+        window.location.reload()
+      }
     } catch (error) {
       console.error('清理账号数据失败:', error)
       window.alert('清理失败，请稍后重试。')

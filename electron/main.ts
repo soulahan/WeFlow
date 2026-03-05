@@ -1347,27 +1347,29 @@ function registerIpcHandlers() {
       }
     }
 
-    try {
-      const wxidConfigsRaw = cfg.get('wxidConfigs') as Record<string, any> | undefined
-      if (wxidConfigsRaw && typeof wxidConfigsRaw === 'object') {
-        const nextConfigs: Record<string, any> = { ...wxidConfigsRaw }
-        for (const key of Object.keys(nextConfigs)) {
-          if (isMatchedAccountName(key) || normalizeAccountId(key) === normalizedWxid) {
-            delete nextConfigs[key]
+    if (clearCache) {
+      try {
+        const wxidConfigsRaw = cfg.get('wxidConfigs') as Record<string, any> | undefined
+        if (wxidConfigsRaw && typeof wxidConfigsRaw === 'object') {
+          const nextConfigs: Record<string, any> = { ...wxidConfigsRaw }
+          for (const key of Object.keys(nextConfigs)) {
+            if (isMatchedAccountName(key) || normalizeAccountId(key) === normalizedWxid) {
+              delete nextConfigs[key]
+            }
           }
+          cfg.set('wxidConfigs' as any, nextConfigs as any)
         }
-        cfg.set('wxidConfigs' as any, nextConfigs as any)
+        cfg.set('myWxid' as any, '')
+        cfg.set('decryptKey' as any, '')
+        cfg.set('imageXorKey' as any, 0)
+        cfg.set('imageAesKey' as any, '')
+        cfg.set('dbPath' as any, '')
+        cfg.set('lastOpenedDb' as any, '')
+        cfg.set('onboardingDone' as any, false)
+        cfg.set('lastSession' as any, '')
+      } catch (error) {
+        warnings.push(`清理账号配置失败: ${String(error)}`)
       }
-      cfg.set('myWxid' as any, '')
-      cfg.set('decryptKey' as any, '')
-      cfg.set('imageXorKey' as any, 0)
-      cfg.set('imageAesKey' as any, '')
-      cfg.set('dbPath' as any, '')
-      cfg.set('lastOpenedDb' as any, '')
-      cfg.set('onboardingDone' as any, false)
-      cfg.set('lastSession' as any, '')
-    } catch (error) {
-      warnings.push(`清理账号配置失败: ${String(error)}`)
     }
 
     return {
@@ -2172,7 +2174,7 @@ function registerIpcHandlers() {
 
   // 密钥获取
   ipcMain.handle('key:autoGetDbKey', async (event) => {
-    return keyService.autoGetDbKey(60_000, (message, level) => {
+    return keyService.autoGetDbKey(180_000, (message, level) => {
       event.sender.send('key:dbKeyStatus', { message, level })
     })
   })

@@ -36,6 +36,18 @@ interface WxidOption {
   modifiedTime: number
 }
 
+const formatDbKeyFailureMessage = (error?: string, logs?: string[]): string => {
+  const base = String(error || '自动获取密钥失败').trim()
+  const tailLogs = Array.isArray(logs)
+    ? logs
+      .map(item => String(item || '').trim())
+      .filter(Boolean)
+      .slice(-6)
+    : []
+  if (tailLogs.length === 0) return base
+  return `${base}；最近状态：${tailLogs.join(' | ')}`
+}
+
 function SettingsPage() {
   const {
     isDbConnected,
@@ -725,7 +737,10 @@ function SettingsPage() {
           setIsManualStartPrompt(true)
           setDbKeyStatus('需要手动启动微信')
         } else {
-          showMessage(result.error || '自动获取密钥失败', false)
+          if (result.error?.includes('尚未完成登录')) {
+            setDbKeyStatus('请先在微信完成登录后重试')
+          }
+          showMessage(formatDbKeyFailureMessage(result.error, result.logs), false)
         }
       }
     } catch (e: any) {
