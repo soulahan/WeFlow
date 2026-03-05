@@ -1098,6 +1098,14 @@
             }
         }
 
+        .contact-count-progress {
+            padding: 8px 16px 10px;
+            font-size: 11px;
+            color: var(--text-tertiary);
+            border-bottom: 1px dashed color-mix(in srgb, var(--border-color) 70%, transparent);
+            font-variant-numeric: tabular-nums;
+        }
+
         .contact-list-scroll {
             flex: 1;
             overflow-y: auto;
@@ -1173,6 +1181,40 @@
                         white-space: nowrap;
                         overflow: hidden;
                         text-overflow: ellipsis;
+                    }
+                }
+
+                .contact-post-count-wrap {
+                    margin-left: 8px;
+                    min-width: 46px;
+                    display: flex;
+                    justify-content: flex-end;
+                    align-items: center;
+                    flex-shrink: 0;
+                }
+
+                .contact-post-count {
+                    font-size: 12px;
+                    color: var(--text-tertiary);
+                    font-variant-numeric: tabular-nums;
+                    white-space: nowrap;
+                }
+
+                .contact-post-count-loading {
+                    color: var(--text-tertiary);
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+
+                    .spinning {
+                        animation: spin 0.8s linear infinite;
+                    }
+                }
+
+                &.selected {
+                    .contact-post-count {
+                        color: var(--primary);
+                        font-weight: 600;
                     }
                 }
             }
