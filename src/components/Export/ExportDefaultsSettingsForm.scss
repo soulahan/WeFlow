@@ -397,17 +397,7 @@
       align-items: stretch;
     }
 
-    .media-setting-group {
-      grid-template-columns: 1fr;
-      gap: 10px;
-      align-items: stretch;
-    }
-
     .format-setting-group .form-control {
-      justify-content: flex-start;
-    }
-
-    .media-setting-group .form-control {
       justify-content: flex-start;
     }
 
@@ -415,6 +405,25 @@
       max-width: none;
       grid-template-columns: repeat(3, minmax(0, 1fr));
       margin-bottom: 0;
+    }
+  }
+}
+
+@media (max-width: 1024px) {
+  .export-defaults-settings-form.layout-split {
+    .media-setting-group {
+      grid-template-columns: 1fr;
+      gap: 10px;
+      align-items: stretch;
+    }
+
+    .media-setting-group .form-control {
+      justify-content: flex-start;
+    }
+
+    .media-default-grid {
+      max-width: none;
+      flex-wrap: wrap;
     }
   }
 }
