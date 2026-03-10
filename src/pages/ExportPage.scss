@@ -2004,6 +2004,8 @@
   .contacts-virtuoso {
     height: 100%;
     width: 100%;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
 
     &::-webkit-scrollbar {
       width: 6px;
