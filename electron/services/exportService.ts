@@ -2226,7 +2226,7 @@ class ExportService {
         sessionId,
         imageMd5,
         imageDatName,
-        force: false  // 先尝试缩略图
+        force: true  // 导出优先高清，失败再回退缩略图
       })
 
       if (!result.success || !result.localPath) {
