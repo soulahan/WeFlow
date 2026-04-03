@@ -92,6 +92,7 @@ export class BizService {
 
       const officialContacts = contactsResult.contacts.filter(c => c.type === 'official')
       const usernames = officialContacts.map(c => c.username)
+
       const enrichment = await chatService.enrichSessionsContactInfo(usernames)
       const contactInfoMap = enrichment.success && enrichment.contacts ? enrichment.contacts : {}
 
@@ -100,29 +101,44 @@ export class BizService {
       const accountWxid = account || myWxid
       if (!root || !accountWxid) return []
 
-      const dbDir = join(root, accountWxid, 'db_storage', 'message')
       const bizLatestTime: Record<string, number> = {}
 
-      if (existsSync(dbDir)) {
-        const bizDbFiles = readdirSync(dbDir).filter(f => f.startsWith('biz_message') && f.endsWith('.db'))
-        for (const file of bizDbFiles) {
-          const dbPath = join(dbDir, file)
-          const name2idRes = await wcdbService.execQuery('message', dbPath, 'SELECT username FROM Name2Id')
-          if (name2idRes.success && name2idRes.rows) {
-            for (const row of name2idRes.rows) {
-              const uname = row.username || row.user_name
-              if (uname) {
-                const md5 = createHash('md5').update(uname).digest('hex').toLowerCase()
-                const tName = `Msg_${md5}`
-                const timeRes = await wcdbService.execQuery('message', dbPath, `SELECT MAX(create_time) as max_time FROM ${tName}`)
-                if (timeRes.success && timeRes.rows && timeRes.rows[0]?.max_time) {
-                  const t = parseInt(timeRes.rows[0].max_time)
-                  if (!isNaN(t)) bizLatestTime[uname] = Math.max(bizLatestTime[uname] || 0, t)
-                }
-              }
-            }
+      // 暴力解决
+      const timePromises = usernames.map(async (uname) => {
+        try {
+          // limit 设置为 1，只要最新的一条
+          const res = await chatService.getMessages(uname, 0, 1)
+          if (res.success && res.messages && res.messages.length > 0) {
+            return { uname, time: res.messages[0].createTime }
           }
+        } catch (e) {
+          // 忽略没有消息或查询报错的账号
         }
+        return { uname, time: 0 }
+      })
+
+      const timeResults = await Promise.all(timePromises)
+      for (const r of timeResults) {
+        if (r.time > 0) {
+          bizLatestTime[r.uname] = r.time
+        }
+      }
+
+      const formatBizTime = (ts: number) => {
+        if (!ts) return ''
+        const date = new Date(ts * 1000)
+        const now = new Date()
+        const isToday = date.toDateString() === now.toDateString()
+        if (isToday) return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })
+
+        const yesterday = new Date(now)
+        yesterday.setDate(now.getDate() - 1)
+        if (date.toDateString() === yesterday.toDateString()) return '昨天'
+
+        const isThisYear = date.getFullYear() === now.getFullYear()
+        if (isThisYear) return `${date.getMonth() + 1}/${date.getDate()}`
+
+        return `${date.getFullYear().toString().slice(-2)}/${date.getMonth() + 1}/${date.getDate()}`
       }
 
       const result: BizAccount[] = officialContacts.map(contact => {
@@ -135,20 +151,14 @@ export class BizService {
           avatar: info?.avatarUrl || '',
           type: 0,
           last_time: lastTime,
-          formatted_last_time: lastTime ? new Date(lastTime * 1000).toISOString().split('T')[0] : ''
+          formatted_last_time: formatBizTime(lastTime)
         }
       })
 
-      const contactDbPath = join(root, accountWxid, 'db_storage', 'contact', 'contact.db')  // ？？？？
-      // console.log(`contactDbPath: ${contactDbPath}`)
+      const contactDbPath = join(root, accountWxid, 'db_storage', 'contact', 'contact.db')
 
       if (existsSync(contactDbPath)) {
-        // console.log('ok11')
-
         const bizInfoRes = await wcdbService.execQuery('contact', contactDbPath, 'SELECT username, type FROM biz_info')
-
-        // console.log(JSON.stringify(bizInfoRes, null, 2))
-
         if (bizInfoRes.success && bizInfoRes.rows) {
           const typeMap: Record<string, number> = {}
           for (const r of bizInfoRes.rows) typeMap[r.username] = r.type
@@ -157,13 +167,18 @@ export class BizService {
       }
 
       return result
-        .filter(acc => !acc.name.includes('广告'))
-        .sort((a, b) => {
-          if (a.username === 'gh_3dfda90e39d6') return -1
-          if (b.username === 'gh_3dfda90e39d6') return 1
-          return b.last_time - a.last_time
-        })
-    } catch (e) { return [] }
+          .filter(acc => !acc.name.includes('广告'))
+          .sort((a, b) => {
+            // 微信支付强制置顶
+            if (a.username === 'gh_3dfda90e39d6') return -1
+            if (b.username === 'gh_3dfda90e39d6') return 1
+            // 后端直接排好序输出
+            return b.last_time - a.last_time
+          })
+    } catch (e) {
+      console.error('获取账号列表失败:', e)
+      return []
+    }
   }
 
   async listMessages(username: string, account?: string, limit: number = 20, offset: number = 0): Promise<BizMessage[]> {
