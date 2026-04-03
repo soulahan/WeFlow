@@ -87,12 +87,14 @@ export class BizService {
 
   async listAccounts(account?: string): Promise<BizAccount[]> {
     try {
+      // 1. 获取公众号联系人列表
       const contactsResult = await chatService.getContacts({ lite: true })
       if (!contactsResult.success || !contactsResult.contacts) return []
 
       const officialContacts = contactsResult.contacts.filter(c => c.type === 'official')
       const usernames = officialContacts.map(c => c.username)
 
+      // 获取头像和昵称等补充信息
       const enrichment = await chatService.enrichSessionsContactInfo(usernames)
       const contactInfoMap = enrichment.success && enrichment.contacts ? enrichment.contacts : {}
 
@@ -103,27 +105,25 @@ export class BizService {
 
       const bizLatestTime: Record<string, number> = {}
 
-      // 暴力解决
-      const timePromises = usernames.map(async (uname) => {
-        try {
-          // limit 设置为 1，只要最新的一条
-          const res = await chatService.getMessages(uname, 0, 1)
-          if (res.success && res.messages && res.messages.length > 0) {
-            return { uname, time: res.messages[0].createTime }
-          }
-        } catch (e) {
-          // 忽略没有消息或查询报错的账号
-        }
-        return { uname, time: 0 }
-      })
+      try {
+        const sessionsRes = await wcdbService.getSessions()
+        if (sessionsRes.success && sessionsRes.sessions) {
+          for (const session of sessionsRes.sessions) {
+            const uname = session.username || session.strUsrName || session.userName || session.id
+            // 适配日志中发现的字段，注意转为整型数字
+            const timeStr = session.last_timestamp || session.sort_timestamp || session.nTime || session.timestamp || '0'
+            const time = parseInt(timeStr.toString(), 10)
 
-      const timeResults = await Promise.all(timePromises)
-      for (const r of timeResults) {
-        if (r.time > 0) {
-          bizLatestTime[r.uname] = r.time
+            if (usernames.includes(uname) && time > 0) {
+              bizLatestTime[uname] = time
+            }
+          }
         }
+      } catch (e) {
+        console.error('获取 Sessions 失败:', e)
       }
 
+      // 3. 格式化时间显示
       const formatBizTime = (ts: number) => {
         if (!ts) return ''
         const date = new Date(ts * 1000)
@@ -141,6 +141,7 @@ export class BizService {
         return `${date.getFullYear().toString().slice(-2)}/${date.getMonth() + 1}/${date.getDate()}`
       }
 
+      // 4. 组装数据
       const result: BizAccount[] = officialContacts.map(contact => {
         const uname = contact.username
         const info = contactInfoMap[uname]
@@ -155,8 +156,8 @@ export class BizService {
         }
       })
 
+      // 5. 补充公众号类型 (订阅号/服务号)
       const contactDbPath = join(root, accountWxid, 'db_storage', 'contact', 'contact.db')
-
       if (existsSync(contactDbPath)) {
         const bizInfoRes = await wcdbService.execQuery('contact', contactDbPath, 'SELECT username, type FROM biz_info')
         if (bizInfoRes.success && bizInfoRes.rows) {
@@ -166,17 +167,16 @@ export class BizService {
         }
       }
 
+      // 6. 排序输出
       return result
           .filter(acc => !acc.name.includes('广告'))
           .sort((a, b) => {
-            // 微信支付强制置顶
-            if (a.username === 'gh_3dfda90e39d6') return -1
+            if (a.username === 'gh_3dfda90e39d6') return -1 // 微信支付置顶
             if (b.username === 'gh_3dfda90e39d6') return 1
-            // 后端直接排好序输出
-            return b.last_time - a.last_time
+            return b.last_time - a.last_time // 按最新时间降序排列
           })
     } catch (e) {
-      console.error('获取账号列表失败:', e)
+      console.error('获取账号列表发生错误:', e)
       return []
     }
   }
