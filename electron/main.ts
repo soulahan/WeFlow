@@ -136,6 +136,7 @@ const shouldOfferUpdateForTrack = (latestVersion: string, currentVersion: string
 }
 
 let lastAppliedUpdaterChannel: string | null = null
+let lastAppliedUpdaterFeedUrl: string | null = null
 const resetUpdaterProviderCache = () => {
   const updater = autoUpdater as any
   // electron-updater 会缓存 provider；切换 channel 后需清理缓存，避免仍请求旧通道
@@ -146,23 +147,41 @@ const resetUpdaterProviderCache = () => {
   }
 }
 
+const getUpdaterFeedUrlByTrack = (track: 'stable' | 'preview' | 'dev'): string => {
+  const repoBase = 'https://github.com/hicccc77/WeFlow/releases'
+  if (track === 'stable') return `${repoBase}/latest/download`
+  if (track === 'preview') return `${repoBase}/download/nightly-preview`
+  return `${repoBase}/download/nightly-dev`
+}
+
 const applyAutoUpdateChannel = (reason: 'startup' | 'settings' = 'startup') => {
   const track = getEffectiveUpdateTrack()
   const currentTrack = inferUpdateTrackFromVersion(appVersion)
   const baseUpdateChannel = track === 'stable' ? 'latest' : track
+  const nextFeedUrl = getUpdaterFeedUrlByTrack(track)
   const nextUpdaterChannel =
     process.platform === 'win32' && process.arch === 'arm64'
       ? `${baseUpdateChannel}-arm64`
       : baseUpdateChannel
-  if (lastAppliedUpdaterChannel && lastAppliedUpdaterChannel !== nextUpdaterChannel) {
+  if (
+    (lastAppliedUpdaterChannel && lastAppliedUpdaterChannel !== nextUpdaterChannel) ||
+    (lastAppliedUpdaterFeedUrl && lastAppliedUpdaterFeedUrl !== nextFeedUrl)
+  ) {
     resetUpdaterProviderCache()
   }
   autoUpdater.allowPrerelease = track !== 'stable'
   // 只要用户当前选择的目标通道与当前安装版本所属通道不同，就允许跨通道更新（含降级）
   autoUpdater.allowDowngrade = track !== currentTrack
+  // 统一走 generic feed，确保 preview/dev 命中各自固定发布页，不受 GitHub provider 的 prerelease 选择影响。
+  autoUpdater.setFeedURL({
+    provider: 'generic',
+    url: nextFeedUrl,
+    channel: nextUpdaterChannel
+  })
   autoUpdater.channel = nextUpdaterChannel
   lastAppliedUpdaterChannel = nextUpdaterChannel
-  console.log(`[Update](${reason}) 当前版本 ${appVersion}，当前轨道: ${currentTrack}，渠道偏好: ${track}，更新通道: ${autoUpdater.channel}，allowDowngrade=${autoUpdater.allowDowngrade}`)
+  lastAppliedUpdaterFeedUrl = nextFeedUrl
+  console.log(`[Update](${reason}) 当前版本 ${appVersion}，当前轨道: ${currentTrack}，渠道偏好: ${track}，更新通道: ${autoUpdater.channel}，feed=${nextFeedUrl}，allowDowngrade=${autoUpdater.allowDowngrade}`)
 }
 
 applyAutoUpdateChannel('startup')
