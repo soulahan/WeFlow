@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Check, ChevronLeft, ChevronRight, X } from 'lucide-react'
+import { Check, ChevronDown, ChevronLeft, ChevronRight, X } from 'lucide-react'
 import {
   EXPORT_DATE_RANGE_PRESETS,
   WEEKDAY_SHORT_LABELS,
@@ -10,7 +10,6 @@ import {
   createDateRangeByPreset,
   createDefaultDateRange,
   formatCalendarMonthTitle,
-  formatDateInputValue,
   isSameDay,
   parseDateInputValue,
   startOfDay,
@@ -36,6 +35,10 @@ type ActiveBoundary = 'start' | 'end'
 interface ExportDateRangeDialogDraft extends ExportDateRangeSelection {
   panelMonth: Date
 }
+
+const HOUR_OPTIONS = Array.from({ length: 24 }, (_, index) => `${index}`.padStart(2, '0'))
+const MINUTE_OPTIONS = Array.from({ length: 60 }, (_, index) => `${index}`.padStart(2, '0'))
+const QUICK_TIME_OPTIONS = ['00:00', '08:00', '12:00', '18:00', '23:59']
 
 const resolveBounds = (minDate?: Date | null, maxDate?: Date | null): { minDate: Date; maxDate: Date } | null => {
   if (!(minDate instanceof Date) || Number.isNaN(minDate.getTime())) return null
@@ -149,6 +152,9 @@ export function ExportDateRangeDialog({
     start: '00:00',
     end: '23:59'
   })
+  const [openTimeDropdown, setOpenTimeDropdown] = useState<ActiveBoundary | null>(null)
+  const startTimeSelectRef = useRef<HTMLDivElement>(null)
+  const endTimeSelectRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (!open) return
@@ -172,6 +178,7 @@ export function ExportDateRangeDialog({
         end: formatTimeOnly(nextDraft.dateRange.end)
       })
     }
+    setOpenTimeDropdown(null)
     setDateInputError({ start: false, end: false })
   }, [maxDate, minDate, open, value])
 
@@ -184,6 +191,33 @@ export function ExportDateRangeDialog({
     // Don't sync timeInput here - it's controlled by the time picker
     setDateInputError({ start: false, end: false })
   }, [draft.dateRange.end.getTime(), draft.dateRange.start.getTime(), open])
+
+  useEffect(() => {
+    if (!openTimeDropdown) return
+
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target as Node
+      const activeContainer = openTimeDropdown === 'start'
+        ? startTimeSelectRef.current
+        : endTimeSelectRef.current
+      if (!activeContainer?.contains(target)) {
+        setOpenTimeDropdown(null)
+      }
+    }
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setOpenTimeDropdown(null)
+      }
+    }
+
+    document.addEventListener('mousedown', handlePointerDown)
+    document.addEventListener('keydown', handleEscape)
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown)
+      document.removeEventListener('keydown', handleEscape)
+    }
+  }, [openTimeDropdown])
 
   const bounds = useMemo(() => resolveBounds(minDate, maxDate), [maxDate, minDate])
   const clampStartDate = useCallback((targetDate: Date) => {
@@ -241,6 +275,11 @@ export function ExportDateRangeDialog({
       const previewRange = bounds
         ? { start: bounds.minDate, end: bounds.maxDate }
         : createDefaultDateRange()
+      setTimeInput({
+        start: '00:00',
+        end: '23:59'
+      })
+      setOpenTimeDropdown(null)
       setDraft(prev => ({
         ...prev,
         preset,
@@ -257,6 +296,11 @@ export function ExportDateRangeDialog({
       useAllTime: false,
       dateRange: createDateRangeByPreset(preset)
     }, minDate, maxDate).dateRange
+    setTimeInput({
+      start: '00:00',
+      end: '23:59'
+    })
+    setOpenTimeDropdown(null)
     setDraft(prev => ({
       ...prev,
       preset,
@@ -276,8 +320,7 @@ export function ExportDateRangeDialog({
     return { hours, minutes }
   }
 
-  // Handle time picker changes - update draft.dateRange immediately
-  const handleTimePickerChange = useCallback((boundary: 'start' | 'end', timeStr: string) => {
+  const updateBoundaryTime = useCallback((boundary: ActiveBoundary, timeStr: string) => {
     setTimeInput(prev => ({ ...prev, [boundary]: timeStr }))
 
     const parsedTime = parseTimeValue(timeStr)
@@ -298,6 +341,82 @@ export function ExportDateRangeDialog({
       }
     })
   }, [])
+
+  const toggleTimeDropdown = useCallback((boundary: ActiveBoundary) => {
+    setActiveBoundary(boundary)
+    setOpenTimeDropdown(prev => (prev === boundary ? null : boundary))
+  }, [])
+
+  const handleTimeColumnSelect = useCallback((boundary: ActiveBoundary, field: 'hour' | 'minute', value: string) => {
+    const parsedCurrent = parseTimeValue(timeInput[boundary]) ?? {
+      hours: boundary === 'start' ? 0 : 23,
+      minutes: boundary === 'start' ? 0 : 59
+    }
+    const nextHours = field === 'hour' ? Number(value) : parsedCurrent.hours
+    const nextMinutes = field === 'minute' ? Number(value) : parsedCurrent.minutes
+    updateBoundaryTime(boundary, `${`${nextHours}`.padStart(2, '0')}:${`${nextMinutes}`.padStart(2, '0')}`)
+  }, [timeInput, updateBoundaryTime])
+
+  const renderTimeDropdown = (boundary: ActiveBoundary) => {
+    const currentTime = timeInput[boundary]
+    const parsedCurrent = parseTimeValue(currentTime) ?? {
+      hours: boundary === 'start' ? 0 : 23,
+      minutes: boundary === 'start' ? 0 : 59
+    }
+
+    return (
+      <div className="export-date-range-time-dropdown" onClick={(event) => event.stopPropagation()}>
+        <div className="export-date-range-time-dropdown-header">
+          <span>{boundary === 'start' ? '开始时间' : '结束时间'}</span>
+          <strong>{currentTime}</strong>
+        </div>
+        <div className="export-date-range-time-quick-list">
+          {QUICK_TIME_OPTIONS.map(option => (
+            <button
+              key={`${boundary}-${option}`}
+              type="button"
+              className={`export-date-range-time-quick-item ${currentTime === option ? 'active' : ''}`}
+              onClick={() => updateBoundaryTime(boundary, option)}
+            >
+              {option}
+            </button>
+          ))}
+        </div>
+        <div className="export-date-range-time-columns">
+          <div className="export-date-range-time-column">
+            <span className="export-date-range-time-column-label">小时</span>
+            <div className="export-date-range-time-column-list">
+              {HOUR_OPTIONS.map(option => (
+                <button
+                  key={`${boundary}-hour-${option}`}
+                  type="button"
+                  className={`export-date-range-time-option ${parsedCurrent.hours === Number(option) ? 'active' : ''}`}
+                  onClick={() => handleTimeColumnSelect(boundary, 'hour', option)}
+                >
+                  {option}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="export-date-range-time-column">
+            <span className="export-date-range-time-column-label">分钟</span>
+            <div className="export-date-range-time-column-list">
+              {MINUTE_OPTIONS.map(option => (
+                <button
+                  key={`${boundary}-minute-${option}`}
+                  type="button"
+                  className={`export-date-range-time-option ${parsedCurrent.minutes === Number(option) ? 'active' : ''}`}
+                  onClick={() => handleTimeColumnSelect(boundary, 'minute', option)}
+                >
+                  {option}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   // Check if date input string contains time (YYYY-MM-DD HH:mm format)
   const dateInputHasTime = (dateStr: string): boolean => /^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}$/.test(dateStr.trim())
@@ -357,6 +476,7 @@ export function ExportDateRangeDialog({
       newStart.setHours(time.hours, time.minutes, 0, 0)
       setRangeStart(newStart)
       setActiveBoundary('end')
+      setOpenTimeDropdown(null)
       return
     }
 
@@ -369,6 +489,7 @@ export function ExportDateRangeDialog({
     // If selecting same day or going backwards, use 23:59:59, otherwise use the time from timeInput
     if (pickedStart <= start) {
       newEnd.setHours(23, 59, 59, 999)
+      setTimeInput(prev => ({ ...prev, end: '23:59' }))
     } else {
       newEnd.setHours(time.hours, time.minutes, 59, 999)
     }
@@ -384,6 +505,7 @@ export function ExportDateRangeDialog({
       panelMonth: toMonthStart(targetDate)
     }))
     setActiveBoundary('start')
+    setOpenTimeDropdown(null)
   }, [activeBoundary, draft.dateRange.start, draft.useAllTime, timeInput.end, timeInput.start, setRangeStart])
 
   const isRangeModeActive = !draft.useAllTime
@@ -491,16 +613,23 @@ export function ExportDateRangeDialog({
               }}
               onBlur={commitStartFromInput}
             />
-            <input
-              type="time"
-              className="export-date-range-time-input"
-              value={timeInput.start}
-              onChange={(event) => {
-                handleTimePickerChange('start', event.target.value)
-              }}
-              onFocus={() => setActiveBoundary('start')}
+            <div
+              className={`export-date-range-time-select ${openTimeDropdown === 'start' ? 'open' : ''}`}
+              ref={startTimeSelectRef}
               onClick={(event) => event.stopPropagation()}
-            />
+            >
+              <button
+                type="button"
+                className="export-date-range-time-trigger"
+                onClick={() => toggleTimeDropdown('start')}
+                aria-haspopup="dialog"
+                aria-expanded={openTimeDropdown === 'start'}
+              >
+                <span className="export-date-range-time-trigger-value">{timeInput.start}</span>
+                <ChevronDown size={14} />
+              </button>
+              {openTimeDropdown === 'start' && renderTimeDropdown('start')}
+            </div>
           </div>
           <div
             className={`export-date-range-boundary-card ${activeBoundary === 'end' ? 'active' : ''}`}
@@ -528,16 +657,23 @@ export function ExportDateRangeDialog({
               }}
               onBlur={commitEndFromInput}
             />
-            <input
-              type="time"
-              className="export-date-range-time-input"
-              value={timeInput.end}
-              onChange={(event) => {
-                handleTimePickerChange('end', event.target.value)
-              }}
-              onFocus={() => setActiveBoundary('end')}
+            <div
+              className={`export-date-range-time-select ${openTimeDropdown === 'end' ? 'open' : ''}`}
+              ref={endTimeSelectRef}
               onClick={(event) => event.stopPropagation()}
-            />
+            >
+              <button
+                type="button"
+                className="export-date-range-time-trigger"
+                onClick={() => toggleTimeDropdown('end')}
+                aria-haspopup="dialog"
+                aria-expanded={openTimeDropdown === 'end'}
+              >
+                <span className="export-date-range-time-trigger-value">{timeInput.end}</span>
+                <ChevronDown size={14} />
+              </button>
+              {openTimeDropdown === 'end' && renderTimeDropdown('end')}
+            </div>
           </div>
         </div>
 
