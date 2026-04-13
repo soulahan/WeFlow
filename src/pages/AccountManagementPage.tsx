@@ -164,7 +164,7 @@ function AccountManagementPage() {
           modifiedTime: Number(scanned.modifiedTime || 0),
           configUpdatedAt: Number(matchedConfig?.value?.updatedAt || 0),
           hasConfig: Boolean(matchedConfig),
-          isCurrent: normalizedCurrent && normalized === normalizedCurrent,
+          isCurrent: Boolean(normalizedCurrent) && normalized === normalizedCurrent,
           fromScan: true
         })
       }
@@ -189,7 +189,7 @@ function AccountManagementPage() {
           modifiedTime: 0,
           configUpdatedAt: Number(matchedConfig.value?.updatedAt || 0),
           hasConfig: true,
-          isCurrent: normalizedCurrent && normalized === normalizedCurrent,
+          isCurrent: Boolean(normalizedCurrent) && normalized === normalizedCurrent,
           fromScan: false
         })
       }
