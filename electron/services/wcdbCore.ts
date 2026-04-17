@@ -2,6 +2,7 @@ import { join, dirname, basename } from 'path'
 import { appendFileSync, existsSync, mkdirSync, readdirSync, statSync, readFileSync } from 'fs'
 import { tmpdir } from 'os'
 import * as fzstd from 'fzstd'
+import { expandHomePath } from '../utils/pathUtils'
 
 //数据服务初始化错误信息，用于帮助用户诊断问题
 let lastDllInitError: string | null = null
@@ -481,7 +482,7 @@ export class WcdbCore {
 
   private resolveDbStoragePath(basePath: string, wxid: string): string | null {
     if (!basePath) return null
-    const normalized = basePath.replace(/[\\\\/]+$/, '')
+    const normalized = expandHomePath(basePath).replace(/[\\\\/]+$/, '')
     if (normalized.toLowerCase().endsWith('db_storage') && existsSync(normalized)) {
       return normalized
     }
@@ -1600,6 +1601,9 @@ export class WcdbCore {
    */
   close(): void {
     if (this.handle !== null || this.initialized) {
+      // 先停止监控与云控回调，避免 shutdown 后仍有 native 回调访问已释放资源。
+      try { this.stopMonitor() } catch {}
+      try { this.cloudStop() } catch {}
       try {
         // 不调用 closeAccount，直接 shutdown
         this.wcdbShutdown()

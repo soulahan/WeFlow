@@ -1,4 +1,4 @@
-/**
+﻿/**
  * insightService.ts
  *
  * AI 见解后台服务：
@@ -21,6 +21,7 @@ import { URL } from 'url'
 import { app, Notification } from 'electron'
 import { ConfigService } from './config'
 import { chatService, ChatSession, Message } from './chatService'
+import { weiboService } from './social/weiboService'
 
 // ─── 常量 ────────────────────────────────────────────────────────────────────
 
@@ -35,7 +36,9 @@ const SILENCE_SCAN_INITIAL_DELAY_MS = 3 * 60 * 1000
 
 /** 单次 API 请求超时（毫秒） */
 const API_TIMEOUT_MS = 45_000
-const API_MAX_TOKENS = 200
+const API_MAX_TOKENS_DEFAULT = 200
+const API_MAX_TOKENS_MIN = 1
+const API_MAX_TOKENS_MAX = 65_535
 const API_TEMPERATURE = 0.7
 
 /** 沉默天数阈值默认值 */
@@ -46,6 +49,11 @@ const INSIGHT_CONFIG_KEYS = new Set([
   'aiModelApiBaseUrl',
   'aiModelApiKey',
   'aiModelApiModel',
+  'aiModelApiMaxTokens',
+  'aiInsightAllowSocialContext',
+  'aiInsightSocialContextCount',
+  'aiInsightWeiboCookie',
+  'aiInsightWeiboBindings',
   'dbPath',
   'decryptKey',
   'myWxid'
@@ -62,6 +70,7 @@ interface SharedAiModelConfig {
   apiBaseUrl: string
   apiKey: string
   model: string
+  maxTokens: number
 }
 
 // ─── 日志 ─────────────────────────────────────────────────────────────────────
@@ -166,6 +175,12 @@ function formatTimestamp(ts: number): string {
   return new Date(ts).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
 }
 
+function normalizeApiMaxTokens(value: unknown): number {
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric)) return API_MAX_TOKENS_DEFAULT
+  return Math.min(API_MAX_TOKENS_MAX, Math.max(API_MAX_TOKENS_MIN, Math.floor(numeric)))
+}
+
 /**
  * 调用 OpenAI 兼容 API（非流式），返回模型第一条消息内容。
  * 使用 Node 原生 https/http 模块，无需任何第三方 SDK。
@@ -175,7 +190,8 @@ function callApi(
   apiKey: string,
   model: string,
   messages: Array<{ role: string; content: string }>,
-  timeoutMs: number = API_TIMEOUT_MS
+  timeoutMs: number = API_TIMEOUT_MS,
+  maxTokens: number = API_MAX_TOKENS_DEFAULT
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     const endpoint = buildApiUrl(apiBaseUrl, '/chat/completions')
@@ -190,7 +206,7 @@ function callApi(
     const body = JSON.stringify({
       model,
       messages,
-      max_tokens: API_MAX_TOKENS,
+      max_tokens: normalizeApiMaxTokens(maxTokens),
       temperature: API_TEMPERATURE,
       stream: false
     })
@@ -318,6 +334,10 @@ class InsightService {
     if (!INSIGHT_CONFIG_KEYS.has(normalizedKey)) return
 
     // 数据库相关配置变更后，丢弃缓存并强制下次重连
+    if (normalizedKey === 'aiInsightAllowSocialContext' || normalizedKey === 'aiInsightSocialContextCount' || normalizedKey === 'aiInsightWeiboCookie' || normalizedKey === 'aiInsightWeiboBindings') {
+      weiboService.clearCache()
+    }
+
     if (normalizedKey === 'dbPath' || normalizedKey === 'decryptKey' || normalizedKey === 'myWxid') {
       this.clearRuntimeCache()
     }
@@ -350,6 +370,7 @@ class InsightService {
     this.lastSeenTimestamp.clear()
     this.todayTriggers.clear()
     this.todayDate = getStartOfDay()
+    weiboService.clearCache()
   }
 
   private clearTimers(): void {
@@ -392,7 +413,7 @@ class InsightService {
    * 供设置页"测试连接"按钮调用。
    */
   async testConnection(): Promise<{ success: boolean; message: string }> {
-    const { apiBaseUrl, apiKey, model } = this.getSharedAiModelConfig()
+    const { apiBaseUrl, apiKey, model, maxTokens } = this.getSharedAiModelConfig()
 
     if (!apiBaseUrl || !apiKey) {
       return { success: false, message: '请先填写 API 地址和 API Key' }
@@ -407,6 +428,7 @@ class InsightService {
         [
           `Endpoint: ${endpoint}`,
           `Model: ${model}`,
+          `Max Tokens: ${maxTokens}`,
           '',
           '用户提示词：',
           requestMessages[0].content
@@ -418,7 +440,8 @@ class InsightService {
         apiKey,
         model,
         requestMessages,
-        15_000
+        15_000,
+        maxTokens
       )
       insightDebugSection('INFO', 'AI 测试连接输出原文', result)
       return { success: true, message: `连接成功，模型回复：${result.slice(0, 50)}` }
@@ -505,7 +528,7 @@ class InsightService {
       return { success: false, message: '请先在设置中开启「AI 足迹总结」' }
     }
 
-    const { apiBaseUrl, apiKey, model } = this.getSharedAiModelConfig()
+    const { apiBaseUrl, apiKey, model, maxTokens } = this.getSharedAiModelConfig()
     if (!apiBaseUrl || !apiKey) {
       return { success: false, message: '请先填写通用 AI 模型配置（API 地址和 Key）' }
     }
@@ -569,7 +592,8 @@ ${topMentionText}
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt }
         ],
-        25_000
+        25_000,
+        maxTokens
       )
       const insight = result.trim().slice(0, 400)
       if (!insight) return { success: false, message: '模型返回为空' }
@@ -601,8 +625,9 @@ ${topMentionText}
       || this.config.get('aiInsightApiModel')
       || 'gpt-4o-mini'
     ).trim() || 'gpt-4o-mini'
+    const maxTokens = normalizeApiMaxTokens(this.config.get('aiModelApiMaxTokens'))
 
-    return { apiBaseUrl, apiKey, model }
+    return { apiBaseUrl, apiKey, model, maxTokens }
   }
 
   private looksLikeWxid(text: string): boolean {
@@ -784,6 +809,50 @@ ${topMentionText}
       total += record.timestamps.length
     }
     return total
+  }
+
+  private formatWeiboTimestamp(raw: string): string {
+    const parsed = Date.parse(String(raw || ''))
+    if (!Number.isFinite(parsed)) {
+      return String(raw || '').trim()
+    }
+    return new Date(parsed).toLocaleString('zh-CN')
+  }
+
+  private async getSocialContextSection(sessionId: string): Promise<string> {
+    const allowSocialContext = this.config.get('aiInsightAllowSocialContext') === true
+    if (!allowSocialContext) return ''
+
+    const rawCookie = String(this.config.get('aiInsightWeiboCookie') || '').trim()
+    const hasCookie = rawCookie.length > 0
+
+    const bindings =
+      (this.config.get('aiInsightWeiboBindings') as Record<string, { uid?: string; screenName?: string }> | undefined) || {}
+    const binding = bindings[sessionId]
+    const uid = String(binding?.uid || '').trim()
+    if (!uid) return ''
+
+    const socialCountRaw = Number(this.config.get('aiInsightSocialContextCount') || 3)
+    const socialCount = Math.max(1, Math.min(5, Math.floor(socialCountRaw) || 3))
+
+    try {
+      const posts = await weiboService.fetchRecentPosts(uid, rawCookie, socialCount)
+      if (posts.length === 0) return ''
+
+      const lines = posts.map((post) => {
+        const time = this.formatWeiboTimestamp(post.createdAt)
+        const text = post.text.length > 180 ? `${post.text.slice(0, 180)}...` : post.text
+        return `[微博 ${time}] ${text}`
+      })
+      insightLog('INFO', `已加载 ${lines.length} 条微博公开内容 (uid=${uid})`)
+      const riskHint = hasCookie
+        ? ''
+        : '\n提示：未配置微博 Cookie，使用移动端公开接口抓取，可能因平台风控导致获取失败或内容较少。'
+      return `近期公开社交平台内容（来源：微博，最近 ${lines.length} 条）：\n${lines.join('\n')}${riskHint}`
+    } catch (error) {
+      insightLog('WARN', `拉取微博公开内容失败 (uid=${uid}): ${(error as Error).message}`)
+      return ''
+    }
   }
 
   // ── 沉默联系人扫描 ──────────────────────────────────────────────────────────
@@ -996,7 +1065,7 @@ ${topMentionText}
     if (!sessionId) return
     if (!this.isEnabled()) return
 
-    const { apiBaseUrl, apiKey, model } = this.getSharedAiModelConfig()
+    const { apiBaseUrl, apiKey, model, maxTokens } = this.getSharedAiModelConfig()
     const allowContext = this.config.get('aiInsightAllowContext') as boolean
     const contextCount = (this.config.get('aiInsightContextCount') as number) || 40
     const resolvedDisplayName = await this.resolveInsightSessionDisplayName(sessionId, displayName)
@@ -1027,6 +1096,8 @@ ${topMentionText}
         insightLog('WARN', `拉取上下文失败: ${(e as Error).message}`)
       }
     }
+
+    const socialContextSection = await this.getSocialContextSection(sessionId)
 
     // ── 默认 system prompt（稳定内容，有利于 provider 端 prompt cache 命中）────
     const DEFAULT_SYSTEM_PROMPT = `你是用户的私人关系观察助手，名叫"见解"。你的任务是主动提供有价值的观察和建议。
@@ -1060,6 +1131,7 @@ ${topMentionText}
       `时间统计：${todayStatsDesc}`,
       `全局统计：${globalStatsDesc}`,
       contextSection,
+      socialContextSection,
       '请给出你的见解（≤80字）：'
     ].filter(Boolean).join('\n\n')
 
@@ -1076,6 +1148,7 @@ ${topMentionText}
       [
         `接口地址：${endpoint}`,
         `模型：${model}`,
+        `Max Tokens：${maxTokens}`,
         `触发原因：${triggerReason}`,
         `上下文开关：${allowContext ? '开启' : '关闭'}`,
         `上下文条数：${contextCount}`,
@@ -1093,7 +1166,9 @@ ${topMentionText}
         apiBaseUrl,
         apiKey,
         model,
-        requestMessages
+        requestMessages,
+        API_TIMEOUT_MS,
+        maxTokens
       )
 
       insightLog('INFO', `API 返回原文: ${result.slice(0, 150)}`)
@@ -1190,3 +1265,5 @@ ${topMentionText}
 }
 
 export const insightService = new InsightService()
+
+

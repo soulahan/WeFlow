@@ -53,6 +53,13 @@ class MessagePushService {
     void this.refreshConfiguration('startup')
   }
 
+  stop(): void {
+    this.started = false
+    this.processing = false
+    this.rerunRequested = false
+    this.resetRuntimeState()
+  }
+
   handleDbMonitorChange(type: string, json: string): void {
     if (!this.started) return
     if (!this.isPushEnabled()) return
